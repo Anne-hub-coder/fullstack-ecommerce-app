@@ -17,7 +17,8 @@ const initialState: AuthState = {
   authenticated: false,
   loading: false,
   error: null,
-  userId: '' || null,
+  userId: 
+ null,
   userRole: 'User',
 };
 

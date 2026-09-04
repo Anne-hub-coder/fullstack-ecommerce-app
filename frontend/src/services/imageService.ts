@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { base_Azure_URL, base_localhost_URL } from '../types/Auth';
+import { base_localhost_URL } from '../types/Auth';
 
 // const API_URL = base_Azure_URL;
 const API_URL = base_localhost_URL;
