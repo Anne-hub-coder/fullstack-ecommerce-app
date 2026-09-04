@@ -121,7 +121,7 @@ ehthumbs.db
 mono_crash.*
 
 # Ignore Migrations folder
-Migrations/
+# Migrations/
 
 # Local History for Visual Studio Code
 .history/
