@@ -177,6 +177,14 @@ builder.Services.AddAuthorization(
 );
 var app = builder.Build();
 
+// Apply pending EF Core migrations at startup
+using (var scope = app.Services.CreateScope())
+{
+    var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+    dbContext.Database.Migrate();
+}
+
+
 // if (app.Environment.IsDevelopment())
 // {
 //     app.UseSwagger();

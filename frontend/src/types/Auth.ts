@@ -10,4 +10,10 @@ export interface AuthState {
 
 export const base_Azure_URL =
   'https://ecommerce-dev-app.azurewebsites.net/api/v1';
-export const base_localhost_URL = 'http://localhost:5096/api/v1';
+
+export const base_localhost_URL = import.meta.env.PROD
+  ? '/api/v1'
+  : 'http://localhost:5096/api/v1';
+
+
+
