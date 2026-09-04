@@ -8,52 +8,56 @@
 ![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-14-4169E1?logo=postgresql&logoColor=white)
 
-A production-style DevOps implementation of an existing three-tier e-commerce application.
+A production-style DevOps implementation of an existing three-tier e-commerce application using **Docker, Docker Compose, Nginx, PostgreSQL, Git, Linux, and AWS EC2**.
 
-The application consists of:
+The base application consists of:
 
 - React + TypeScript frontend
 - ASP.NET Core 8 backend
 - PostgreSQL database
 
-The main goal of this project was to take an existing application and apply practical DevOps concepts including Docker, multi-stage builds, Docker Compose, container networking, persistent storage, Nginx reverse proxying, health checks, runtime configuration, Git practices, and AWS EC2 deployment.
+The focus of this project was not to build the application from scratch. The objective was to take an existing three-tier application, understand its architecture, containerize each required layer, orchestrate the services, configure networking and persistence, optimize the images, and deploy the complete application on AWS EC2.
 
 ---
 
-## 📌 Project Objective
+# 📌 Project Objective
 
-The objective was not to develop a new application from scratch.
+The project was completed as a practical DevOps implementation covering:
 
-Instead, an existing open-source three-tier application was used as the base application and the following DevOps work was implemented:
-
-- Run and validate the application locally
-- Understand the application architecture
-- Create a three-tier system-design diagram
-- Containerize frontend and backend separately
-- Use multi-stage Docker builds
-- Optimize Docker build layers
-- Add `.dockerignore` files
-- Run the backend container as a non-root user
-- Containerize PostgreSQL
-- Configure persistent database storage
-- Create a custom Docker network
-- Use Docker service-name DNS instead of hardcoded IP addresses
-- Configure Nginx as a reverse proxy
-- Keep backend and database ports internal
-- Add container health checks
-- Track and automatically apply EF Core migrations
-- Manage services using Docker Compose
-- Prove database persistence after container recreation
-- Deploy the complete stack on AWS EC2
-- Validate the application through the EC2 public endpoint
+- Existing application analysis
+- Local application validation
+- Three-tier system design
+- Git branching and incremental commits
+- Separate frontend and backend Dockerfiles
+- Multi-stage Docker builds
+- Docker build optimization
+- `.dockerignore` configuration
+- Non-root backend container execution
+- Nginx production web server
+- Nginx reverse proxy
+- PostgreSQL containerization
+- Docker Compose orchestration
+- Custom Docker networking
+- Docker service-name DNS
+- Persistent PostgreSQL storage
+- EF Core migrations
+- Container health checks
+- Runtime environment configuration
+- Secrets separation using `.env`
+- AWS EC2 deployment
+- Security Group configuration
+- Public vs internal service exposure
+- API validation
+- Persistence validation
+- Deployment evidence and documentation
 
 ---
 
-# 🏗️ Architecture
+# 🏗️ System Architecture
 
-![System Design](documentation/devops/system-design.png)
+The application follows a three-tier architecture.
 
-The deployed architecture follows a three-tier model:
+![System Design](documentation/devops/screenshots/system-design.png)
 
 ```text
                          Internet / Browser
@@ -91,9 +95,51 @@ The deployed architecture follows a three-tier model:
                     +-----------------------+
 ```
 
-Only the frontend is exposed publicly.
+The frontend is the only application service exposed publicly.
 
-The backend and PostgreSQL database communicate internally through Docker networking.
+The backend and PostgreSQL database remain internal to the Docker network.
+
+---
+
+# 🔄 Request Flow
+
+A normal request follows this path:
+
+```text
+User Browser
+     |
+     | HTTP :80
+     v
+Nginx / React Frontend
+     |
+     | /api/v1/...
+     v
+ASP.NET Core Backend
+     |
+     | Entity Framework Core
+     v
+PostgreSQL Database
+```
+
+For example:
+
+```text
+Browser
+   |
+   | GET /api/v1/products
+   v
+Nginx
+   |
+   | backend:8080
+   v
+ASP.NET Core
+   |
+   | db:5432
+   v
+PostgreSQL
+```
+
+This avoids exposing the backend directly to the public internet.
 
 ---
 
@@ -134,13 +180,15 @@ The backend and PostgreSQL database communicate internally through Docker networ
 - Docker named volumes
 - Container health checks
 - Nginx reverse proxy
-- Environment variables
+- Linux
 - AWS EC2
-- Ubuntu Linux
+- Ubuntu Server
 
 ---
 
 # 📁 Repository Structure
+
+![GitHub Repository](documentation/devops/screenshots/github-repository.png)
 
 ```text
 fullstack-ecommerce-app/
@@ -163,7 +211,8 @@ fullstack-ecommerce-app/
 │
 ├── documentation/
 │   └── devops/
-│       └── system-design.png
+│       ├── system-design.png
+│       └── screenshots/
 │
 ├── docker-compose.yml
 ├── .gitignore
@@ -173,575 +222,19 @@ fullstack-ecommerce-app/
 
 ---
 
-# 🐳 Backend Dockerization
-
-The ASP.NET Core backend uses a multi-stage Docker build.
-
-## Build Stage
-
-The first stage uses the .NET 8 SDK image.
-
-It is responsible for:
-
-- copying project files
-- restoring NuGet dependencies
-- copying application source code
-- publishing the application in Release mode
-
-The project files are copied before the full source code so Docker can cache the dependency restore layer.
-
-Conceptually:
-
-```text
-Copy .csproj files
-        |
-        v
-dotnet restore
-        |
-        v
-Copy source code
-        |
-        v
-dotnet publish
-```
-
-This improves rebuild performance when source code changes but dependencies remain unchanged.
-
-## Runtime Stage
-
-The final backend image uses the ASP.NET Core runtime rather than the full SDK.
-
-Benefits:
-
-- smaller final image
-- compiler not included in production
-- reduced attack surface
-- fewer unnecessary build tools
-
-The backend also runs using a non-root user.
-
-This was verified with:
-
-```bash
-docker run --rm --entrypoint id ecommerce-backend:local
-```
-
-The container returned a non-root `app` user.
-
----
-
-# ⚛️ Frontend Dockerization
-
-The frontend also uses a multi-stage Docker build.
-
-## Build Stage
-
-Node.js is used to:
-
-```text
-Install dependencies
-        |
-        v
-Compile TypeScript
-        |
-        v
-Build React/Vite application
-        |
-        v
-dist/
-```
-
-## Runtime Stage
-
-The generated `dist` files are copied into an Nginx Alpine image.
-
-The final frontend image therefore does not require:
-
-- Node.js runtime
-- npm
-- TypeScript compiler
-- application source code
-
-Nginx serves only the generated production assets.
-
----
-
-# 🌐 Nginx Reverse Proxy
-
-Nginx performs two responsibilities:
-
-1. Serves the React production application
-2. Proxies `/api` traffic to the backend container
-
-Request flow:
-
-```text
-Browser
-   |
-   | /api/v1/products
-   v
-Nginx
-   |
-   | backend:8080
-   v
-ASP.NET Core API
-```
-
-This design means the backend does not need to be publicly exposed.
-
-The frontend can use a relative API path:
-
-```text
-/api/v1
-```
-
-instead of a hardcoded public backend IP address.
-
----
-
-# 🐳 Docker Compose
-
-The complete application is orchestrated using Docker Compose.
-
-The Compose stack contains three services:
-
-```text
-frontend
-backend
-db
-```
-
-Start the full stack:
-
-```bash
-docker compose up -d --build
-```
-
-Check service status:
-
-```bash
-docker compose ps
-```
-
-Stop the stack:
-
-```bash
-docker compose down
-```
-
----
-
-# 🔗 Docker Networking
-
-A custom Docker bridge network is used:
-
-```text
-ecommerce-network
-```
-
-All containers communicate using Docker service names.
-
-Frontend communicates with:
-
-```text
-backend:8080
-```
-
-Backend communicates with:
-
-```text
-db:5432
-```
-
-No hardcoded container IP addresses are required.
-
-Docker's internal DNS resolves the service names automatically.
-
----
-
-# 🔐 Public vs Internal Ports
-
-| Service | Container Port | Host Exposure |
-|---|---:|---|
-| Frontend / Nginx | 80 | Public |
-| ASP.NET Core Backend | 8080 | Internal only |
-| PostgreSQL | 5432 | Internal only |
-
-The database does not publish port `5432` to the EC2 host.
-
-The backend does not publish port `8080` to the EC2 host.
-
-Only Nginx port `80` is publicly exposed.
-
----
-
-# 💾 PostgreSQL Persistence
-
-PostgreSQL data is stored using a Docker named volume.
-
-```text
-postgres_data
-```
-
-The volume is mounted to PostgreSQL's data directory.
-
-This separates the database lifecycle from the container lifecycle.
-
-## Persistence Test
-
-Persistence was verified using the following process:
-
-```text
-Create test record
-       |
-       v
-Verify record exists
-       |
-       v
-docker compose down
-       |
-       v
-Containers removed
-       |
-       v
-docker compose up -d
-       |
-       v
-Containers recreated
-       |
-       v
-Query same record
-       |
-       v
-Record still exists
-```
-
-`docker compose down` was intentionally used without `-v`.
-
-Using:
-
-```bash
-docker compose down -v
-```
-
-would remove the named volume and therefore delete the persistent database data.
-
----
-
-# 🗄️ Entity Framework Core Migrations
-
-EF Core migration files are tracked in Git so a fresh environment can reproduce the database schema.
-
-Pending migrations are applied when the backend starts.
-
-```csharp
-using (var scope = app.Services.CreateScope())
-{
-    var dbContext =
-        scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-
-    dbContext.Database.Migrate();
-}
-```
-
-This allows a new PostgreSQL container on another machine or EC2 instance to automatically receive the required schema.
-
----
-
-# ❤️ Health Checks
-
-Health checks are configured for important services.
-
-## PostgreSQL
-
-PostgreSQL health is checked using:
-
-```text
-pg_isready
-```
-
-## Backend
-
-The backend health check verifies that the ASP.NET application is responding.
-
-Docker Compose waits for PostgreSQL to become healthy before starting the backend.
-
-This creates a more reliable startup sequence:
-
-```text
-PostgreSQL starts
-       |
-       v
-PostgreSQL becomes healthy
-       |
-       v
-Backend starts
-       |
-       v
-EF migrations applied
-       |
-       v
-Backend becomes healthy
-       |
-       v
-Frontend starts
-```
-
----
-
-# 🔑 Runtime Configuration and Secrets
-
-Sensitive configuration is not baked into Docker images.
-
-The following values are injected at runtime:
-
-- PostgreSQL database name
-- PostgreSQL username
-- PostgreSQL password
-- JWT issuer
-- JWT signing key
-
-Example `.env` structure:
-
-```env
-POSTGRES_DB=ecommerce_db
-POSTGRES_USER=ecommerce_user
-POSTGRES_PASSWORD=your_database_password
-
-JWT_ISSUER=EcommerceAPI
-JWT_KEY=your_jwt_signing_key
-```
-
-The real `.env` file is excluded from Git.
-
-Secrets such as:
-
-- `.env`
-- `.pem` private keys
-- passwords
-- JWT keys
-- authentication tokens
-
-must never be committed to the repository.
-
----
-
-# 🖥️ Local Deployment
-
-## 1. Clone Repository
-
-```bash
-git clone https://github.com/Anne-hub-coder/fullstack-ecommerce-app.git
-```
-
-Enter the project:
-
-```bash
-cd fullstack-ecommerce-app
-```
-
-## 2. Create Environment File
-
-Create:
-
-```text
-.env
-```
-
-Example:
-
-```env
-POSTGRES_DB=ecommerce_db
-POSTGRES_USER=ecommerce_user
-POSTGRES_PASSWORD=change_me
-
-JWT_ISSUER=EcommerceAPI
-JWT_KEY=change_me
-```
-
-## 3. Build and Start
-
-```bash
-docker compose up -d --build
-```
-
-## 4. Verify
-
-```bash
-docker compose ps
-```
-
-Expected services:
-
-```text
-ecommerce-db
-ecommerce-backend
-ecommerce-frontend
-```
-
-## 5. Access Application
-
-Open:
-
-```text
-http://localhost
-```
-
----
-
-# ☁️ AWS EC2 Deployment
-
-The complete Docker Compose application was deployed to AWS EC2.
-
-## EC2 Environment
-
-- Ubuntu Linux
-- Docker Engine
-- Docker Compose
-- Git
-- Public HTTP access through port 80
-
-Deployment flow:
-
-```text
-Local Development
-       |
-       v
-Git / GitHub
-       |
-       v
-AWS EC2 Ubuntu
-       |
-       v
-Clone Repository
-       |
-       v
-Create .env
-       |
-       v
-docker compose up -d --build
-       |
-       v
-Frontend + Backend + PostgreSQL
-```
-
-The containers were built directly on EC2 so Docker produced images for the EC2 host architecture.
-
----
-
-# 🛡️ AWS Security Group
-
-The EC2 Security Group was configured so that only required ports were exposed.
-
-Public inbound access:
-
-```text
-SSH   TCP 22
-HTTP  TCP 80
-```
-
-Application ports that remain private:
-
-```text
-8080
-5432
-```
-
-This means users access the application through Nginx while backend and database services remain internal.
-
----
-
-# ✅ Deployment Validation
-
-The running stack was validated with:
-
-```bash
-docker compose ps
-```
-
-The result confirmed:
-
-```text
-PostgreSQL   healthy
-Backend      healthy
-Frontend     running
-```
-
-The API was tested through the Nginx public entry point:
-
-```bash
-curl "http://localhost/api/v1/products?limit=5"
-```
-
-Product data was successfully returned from PostgreSQL.
-
-This validates the complete request flow:
-
-```text
-HTTP request
-     |
-     v
-Nginx
-     |
-     v
-ASP.NET Core API
-     |
-     v
-Entity Framework Core
-     |
-     v
-PostgreSQL
-```
-
-The frontend was also successfully accessed from a browser using the EC2 public IPv4 address.
-
----
-
-# 📦 Docker Image Optimization
-
-Both application images use multi-stage builds.
-
-## Backend
-
-```text
-.NET SDK
-   |
-   v
-dotnet publish
-   |
-   v
-ASP.NET Runtime
-```
-
-## Frontend
-
-```text
-Node.js
-   |
-   v
-Vite Production Build
-   |
-   v
-Nginx
-```
-
-This keeps build tools out of the final runtime images.
-
-Docker layer ordering was also designed so dependency installation can be cached.
-
----
-
 # 🌿 Git Workflow
 
-DevOps implementation was developed on a dedicated branch:
+A dedicated branch was used for the DevOps implementation:
 
 ```text
 devops-implementation
 ```
 
-Changes were committed incrementally instead of using one large final commit.
+Changes were committed incrementally instead of making one final bulk commit.
 
-Examples from the project history:
+![Git Commit History](documentation/devops/screenshots/git-commit-history.png)
+
+Examples from the project history include:
 
 ```text
 docs: add three-tier system architecture diagram
@@ -761,86 +254,817 @@ docker: orchestrate three-tier stack with Compose
 merge: complete DevOps implementation
 ```
 
-This provides a clear development and troubleshooting history.
+This provides traceability and shows the implementation sequence clearly.
+
+The completed DevOps branch was later merged into `main`.
 
 ---
 
-# 🧯 Troubleshooting and Key Learnings
+# 🐳 Backend Dockerization
 
-Real issues encountered during the project were documented and resolved.
+The backend uses a multi-stage Docker build.
 
-## 1. Shell PATH Configuration Issue
+![Backend Dockerfile](documentation/devops/screenshots/backend-dockerfile.png)
 
-The Mac shell initially had an invalid PATH configuration.
+## Stage 1 — Build
 
-Commands such as:
+The build stage uses the .NET 8 SDK.
+
+It performs:
 
 ```text
-curl
-uname
+Copy project files
+        |
+        v
+Restore dependencies
+        |
+        v
+Copy source code
+        |
+        v
+Publish application
 ```
 
-could not be located normally.
+The `.csproj` files are copied before the full source code so Docker can cache the dependency restore layer.
 
-The issue was traced to an incorrectly configured `.zshrc` and fixed by restoring the PATH.
+This means source-code changes do not always require dependencies to be downloaded again.
 
-### Learning
+## Stage 2 — Runtime
 
-Always verify the environment before assuming an application or tool is broken.
+The final backend image uses the ASP.NET Core runtime image rather than the complete SDK.
 
----
+Benefits:
 
-## 2. .NET Solution Build Failure
+- SDK is not included in production
+- fewer unnecessary tools
+- smaller runtime image
+- reduced attack surface
+- cleaner separation between build and runtime stages
 
-The complete solution initially failed because the existing test project was out of sync with the current service constructor.
+The backend is also configured to run using a non-root user.
 
-The deployable backend projects were isolated and tested separately.
+The runtime user was verified using:
 
-### Learning
+```bash
+docker run --rm --entrypoint id ecommerce-backend:local
+```
 
-A solution-level failure does not necessarily mean the production application itself cannot build.
-
-Identify the exact failing project before troubleshooting.
-
----
-
-## 3. EF Core Configuration Failure
-
-EF Core initially failed while attempting to create the `DbContext`.
-
-The underlying problem was invalid JSON configuration rather than Entity Framework itself.
-
-The JSON configuration was independently validated and corrected.
-
-### Learning
-
-Fix the earliest/root error rather than troubleshooting only the downstream exception.
-
----
-
-## 4. PostgreSQL Role Error
-
-Database migration initially failed because:
+The container returned:
 
 ```text
-role ecommerce_user does not exist
+uid=1654(app)
+gid=1654(app)
 ```
 
-A dedicated PostgreSQL role was created and configured.
-
-### Learning
-
-Application connectivity depends on both database availability and valid database identity/permissions.
+This confirms the backend is not running as root.
 
 ---
 
-## 5. Frontend Dependency Conflict
+# ⚛️ Frontend Dockerization
 
-Frontend dependency installation initially returned an npm peer-dependency resolution error.
+The frontend also uses a multi-stage Docker build.
 
-The existing project had incompatible peer-dependency expectations.
+![Frontend Dockerfile](documentation/devops/screenshots/frontend-dockerfile.png)
 
-The baseline installation was completed using:
+## Stage 1 — Build
+
+The Node.js build stage performs:
+
+```text
+Copy package files
+        |
+        v
+Install dependencies
+        |
+        v
+Copy source code
+        |
+        v
+npm run build
+        |
+        v
+Generate /dist
+```
+
+## Stage 2 — Runtime
+
+The generated production files are copied into an Nginx Alpine container.
+
+Final flow:
+
+```text
+React + TypeScript
+        |
+        v
+Node.js Build Stage
+        |
+        v
+Vite Production Build
+        |
+        v
+dist/
+        |
+        v
+Nginx Runtime Container
+```
+
+Node.js, npm, TypeScript compiler and frontend source code are not required in the final runtime container.
+
+---
+
+# 🌐 Nginx Reverse Proxy
+
+Nginx has two responsibilities:
+
+1. Serve the production React application
+2. Proxy API requests to the backend container
+
+Example flow:
+
+```text
+Browser
+   |
+   | /api/v1/products
+   v
+Nginx
+   |
+   | backend:8080
+   v
+ASP.NET Core API
+```
+
+This design provides a single public entry point.
+
+The browser does not need direct access to backend port `8080`.
+
+---
+
+# 🐳 Docker Compose
+
+The complete application is orchestrated using Docker Compose.
+
+![Docker Compose](documentation/devops/screenshots/docker-compose.png)
+
+The stack contains three services:
+
+```text
+frontend
+backend
+db
+```
+
+Start the complete stack:
+
+```bash
+docker compose up -d --build
+```
+
+Check service status:
+
+```bash
+docker compose ps
+```
+
+Stop the stack:
+
+```bash
+docker compose down
+```
+
+Docker Compose manages:
+
+- service creation
+- container networking
+- environment variables
+- health checks
+- persistent storage
+- service dependencies
+
+---
+
+# 🔗 Docker Networking
+
+A custom Docker bridge network is used.
+
+![Custom Docker Network](documentation/devops/screenshots/custom-docker-network.png)
+
+Network:
+
+```text
+fullstack-ecommerce-app_ecommerce-network
+```
+
+Containers communicate using Docker service names instead of container IP addresses.
+
+Frontend to backend:
+
+```text
+backend:8080
+```
+
+Backend to PostgreSQL:
+
+```text
+db:5432
+```
+
+This is possible because Docker Compose provides internal DNS resolution.
+
+---
+
+# 🧠 Docker Networking Concept
+
+An important concept demonstrated in this project is that:
+
+```text
+localhost
+```
+
+inside a container refers to that same container.
+
+Therefore:
+
+```text
+Host=localhost
+```
+
+would not correctly connect the backend container to the PostgreSQL container.
+
+The Compose environment instead uses:
+
+```text
+Host=db
+```
+
+where `db` is the PostgreSQL Compose service name.
+
+---
+
+# 🔐 Public vs Internal Ports
+
+| Service | Container Port | Publicly Exposed |
+|---|---:|---|
+| Frontend / Nginx | 80 | Yes |
+| ASP.NET Core Backend | 8080 | No |
+| PostgreSQL | 5432 | No |
+
+Only the frontend port is published.
+
+Backend:
+
+```text
+8080/tcp
+```
+
+remains internal.
+
+PostgreSQL:
+
+```text
+5432/tcp
+```
+
+also remains internal.
+
+This reduces unnecessary public exposure.
+
+---
+
+# 💾 PostgreSQL Persistent Storage
+
+PostgreSQL data is stored using a Docker named volume.
+
+![PostgreSQL Volume](documentation/devops/screenshots/postgres-volume.png)
+
+The named volume is:
+
+```text
+fullstack-ecommerce-app_postgres_data
+```
+
+The volume separates database storage from the lifecycle of the PostgreSQL container.
+
+Without a volume:
+
+```text
+Delete DB container
+        |
+        v
+Database data may be lost
+```
+
+With the named volume:
+
+```text
+Delete DB container
+        |
+        v
+Volume remains
+        |
+        v
+Create new DB container
+        |
+        v
+Existing database data restored
+```
+
+---
+
+# 🔄 Persistence Validation
+
+Persistence was tested practically.
+
+## Before Container Recreation
+
+A test record was inserted into PostgreSQL.
+
+![Persistence Before](documentation/devops/screenshots/persistence-before.png)
+
+The record was verified before removing the containers.
+
+The containers were then stopped and removed using:
+
+```bash
+docker compose down
+```
+
+The command intentionally did **not** use:
+
+```bash
+docker compose down -v
+```
+
+because `-v` would remove the named volume.
+
+The stack was recreated using:
+
+```bash
+docker compose up -d
+```
+
+## After Container Recreation
+
+The same database record was queried again.
+
+![Persistence After](documentation/devops/screenshots/persistence-after.png)
+
+The record still existed after container recreation.
+
+This proved that PostgreSQL data was stored outside the container lifecycle.
+
+---
+
+# 🗄️ Entity Framework Core Migrations
+
+EF Core migrations are tracked in Git.
+
+The migration files define the database schema required by the application.
+
+Pending migrations are automatically applied during backend startup:
+
+```csharp
+using (var scope = app.Services.CreateScope())
+{
+    var dbContext =
+        scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+    dbContext.Database.Migrate();
+}
+```
+
+This makes the database setup reproducible.
+
+When a fresh PostgreSQL container starts:
+
+```text
+PostgreSQL
+     |
+     v
+Backend starts
+     |
+     v
+EF Core checks migrations
+     |
+     v
+Pending migrations applied
+     |
+     v
+Required schema available
+```
+
+---
+
+# ❤️ Container Health Checks
+
+Health checks were configured for important services.
+
+## PostgreSQL
+
+PostgreSQL readiness is validated using:
+
+```text
+pg_isready
+```
+
+## Backend
+
+The backend has its own health validation.
+
+The final running services showed:
+
+```text
+ecommerce-db         healthy
+ecommerce-backend    healthy
+ecommerce-frontend   running
+```
+
+Health checks are useful because a container being in the `running` state does not always mean the application inside it is actually ready.
+
+---
+
+# 📦 Docker Image Optimization
+
+Both the frontend and backend use multi-stage Docker builds.
+
+![Docker Images](documentation/devops/screenshots/docker-images.png)
+
+Final local Docker Desktop image sizes:
+
+```text
+Backend   : 203.77 MB
+Frontend  : 107.12 MB
+```
+
+The EC2 deployment was built directly on the target Linux host, allowing Docker to build images for the EC2 architecture.
+
+## Optimization Choices
+
+The following optimization practices were used:
+
+### Multi-stage Builds
+
+Build tools are separated from runtime containers.
+
+Backend:
+
+```text
+.NET SDK
+    |
+    v
+Publish
+    |
+    v
+ASP.NET Runtime
+```
+
+Frontend:
+
+```text
+Node.js
+    |
+    v
+Vite Build
+    |
+    v
+Nginx
+```
+
+### Smaller Runtime Images
+
+Runtime containers contain only what is required to execute the application.
+
+### Docker Layer Caching
+
+Dependency files are copied before application source files.
+
+Backend example concept:
+
+```text
+COPY *.csproj
+RUN dotnet restore
+COPY source
+```
+
+Frontend concept:
+
+```text
+COPY package*.json
+RUN npm install
+COPY source
+```
+
+This allows dependency layers to be reused when source code changes.
+
+### `.dockerignore`
+
+Files unnecessary for the build context are excluded.
+
+Examples include:
+
+```text
+node_modules
+bin
+obj
+.git
+local build artifacts
+```
+
+This reduces Docker build context size.
+
+### Non-root Backend Execution
+
+The backend runs using an application user instead of root.
+
+This reduces the privilege level of the running application.
+
+---
+
+# 🔑 Runtime Configuration and Secrets
+
+Environment-specific values are not hardcoded into Docker images.
+
+Configuration is injected at runtime.
+
+Examples:
+
+```env
+POSTGRES_DB=ecommerce_db
+POSTGRES_USER=ecommerce_user
+POSTGRES_PASSWORD=your_database_password
+
+JWT_ISSUER=EcommerceAPI
+JWT_KEY=your_jwt_signing_key
+```
+
+The real `.env` file must not be committed.
+
+Sensitive files that must remain outside Git include:
+
+```text
+.env
+*.pem
+database passwords
+JWT signing keys
+GitHub tokens
+AWS credentials
+```
+
+---
+
+# 🖥️ Local Validation
+
+Before deploying to AWS, the application was tested locally.
+
+The local stack was validated at each layer:
+
+```text
+React frontend
+      |
+      v
+ASP.NET Core backend
+      |
+      v
+PostgreSQL
+```
+
+The backend API was tested separately.
+
+The frontend was then verified to load product data successfully.
+
+This step was important because it separated application-level problems from Docker and cloud-deployment problems.
+
+---
+
+# ☁️ AWS EC2 Deployment
+
+The complete Docker Compose stack was deployed on an Ubuntu AWS EC2 instance.
+
+![EC2 Instance Running](documentation/devops/screenshots/ec2-instance-running.png)
+
+Deployment flow:
+
+```text
+Development on Mac
+        |
+        v
+Git Commit
+        |
+        v
+GitHub Repository
+        |
+        v
+Clone Repository on EC2
+        |
+        v
+Create Runtime .env
+        |
+        v
+Docker Compose Build
+        |
+        v
+Docker Compose Up
+        |
+        v
+Frontend + Backend + PostgreSQL
+```
+
+Docker Engine and Docker Compose were installed on the EC2 instance.
+
+The repository was cloned from GitHub and the stack was built directly on EC2.
+
+Command:
+
+```bash
+docker compose up -d --build
+```
+
+---
+
+# 🛡️ AWS Security Group
+
+The EC2 Security Group controls inbound access.
+
+![Security Group](documentation/devops/screenshots/security-group.png)
+
+Required inbound access:
+
+```text
+SSH     TCP 22    Restricted source IP
+HTTP    TCP 80    0.0.0.0/0
+```
+
+Ports intentionally not exposed publicly:
+
+```text
+8080
+5432
+```
+
+Therefore:
+
+```text
+Internet
+   |
+   v
+Port 80
+   |
+   v
+Nginx
+```
+
+while backend and database remain internal.
+
+---
+
+# ✅ Docker Compose Running on EC2
+
+The complete three-tier stack was successfully started on EC2.
+
+![EC2 Docker Compose](documentation/devops/screenshots/ec2-compose-running.png)
+
+Final service state:
+
+```text
+ecommerce-backend    healthy
+ecommerce-db         healthy
+ecommerce-frontend   running
+```
+
+Only the frontend container publishes a host port:
+
+```text
+0.0.0.0:80 -> 80
+```
+
+Backend:
+
+```text
+8080/tcp
+```
+
+Database:
+
+```text
+5432/tcp
+```
+
+remain internal.
+
+---
+
+# 🔌 API Validation on EC2
+
+The deployed API was tested directly from the EC2 instance.
+
+Command:
+
+```bash
+curl "http://localhost/api/v1/products?limit=5"
+```
+
+![EC2 API Test](documentation/devops/screenshots/ec2-api-test.png)
+
+The response successfully returned product data including items such as:
+
+```text
+Smartphone ABC
+Laptop XYZ
+TV DEF
+Headphones JKL
+Tablet GHI
+```
+
+This confirmed the complete request path:
+
+```text
+Nginx
+  |
+  v
+ASP.NET Core
+  |
+  v
+Entity Framework Core
+  |
+  v
+PostgreSQL
+```
+
+---
+
+# 🌍 Live Application on AWS EC2
+
+The final application was accessed using the EC2 public IPv4 address.
+
+![Live EC2 Website](documentation/devops/screenshots/ec2-live-website.png)
+
+The working frontend confirmed:
+
+- Nginx serving production React files
+- public HTTP connectivity
+- Nginx API reverse proxy
+- backend connectivity
+- database connectivity
+- successful complete deployment
+
+---
+
+# 🧯 Troubleshooting and Technical Learnings
+
+Only meaningful technical issues encountered during implementation are documented here.
+
+## 1. Full .NET Solution Build vs Deployable Backend
+
+The complete solution initially failed because the existing test project was not aligned with the current application service constructor.
+
+The deployable backend projects were isolated and built separately.
+
+### Learning
+
+A solution-level build failure does not automatically mean the production application cannot build.
+
+The correct approach is to identify which project or layer is failing before changing production code.
+
+---
+
+## 2. PostgreSQL Role / Authentication Failure
+
+During database setup, EF Core database update returned an error indicating that:
+
+```text
+role "ecommerce_user" does not exist
+```
+
+The PostgreSQL server itself was reachable, but the application database identity had not been created.
+
+A dedicated application role was created and assigned to the database.
+
+### Learning
+
+Database connectivity consists of multiple layers:
+
+```text
+Network reachable
+        +
+Database exists
+        +
+User/role exists
+        +
+Credentials correct
+        +
+Permissions correct
+```
+
+A successful network connection does not automatically mean authentication is configured correctly.
+
+---
+
+## 3. npm Peer Dependency Conflict
+
+The existing frontend dependencies produced an npm peer-dependency resolution conflict.
+
+The project uses React 18 while one transitive dependency attempted to resolve a newer incompatible router dependency.
+
+The baseline project installation was completed using:
 
 ```bash
 npm install --legacy-peer-deps
@@ -848,73 +1072,57 @@ npm install --legacy-peer-deps
 
 ### Learning
 
-Avoid blindly using `--force` when dependency resolution fails.
+Dependency conflicts should be understood before using destructive options such as:
 
-Understand whether the problem is a version mismatch before modifying packages.
+```text
+--force
+```
+
+For an existing application, preserving a known working dependency baseline is important before making infrastructure changes.
 
 ---
 
-## 6. Frontend Production TypeScript Build Failure
+## 4. Frontend Development Mode vs Production Build
 
-The application worked in Vite development mode but initially failed during:
+The React application could run through the Vite development server, but the first production build failed during:
 
 ```bash
 npm run build
 ```
 
-TypeScript detected source-code issues that development mode had not blocked.
+TypeScript production checks exposed source-code issues that development mode had not prevented.
 
-The issues were corrected before the production Docker image was built.
-
-### Learning
-
-A working development server does not guarantee that the application can produce a clean production build.
-
----
-
-## 7. Docker Daemon Not Running
-
-Docker CLI was installed successfully, but Docker commands failed because Docker Desktop was not running.
-
-Example symptom:
-
-```text
-failed to connect to the docker API
-```
-
-Starting Docker Desktop restored daemon connectivity.
+The relevant issues were corrected before the Docker production image was rebuilt.
 
 ### Learning
 
-Docker CLI and Docker daemon are separate components.
+```text
+npm run dev succeeds
+```
 
-Having the `docker` command installed does not guarantee the Docker engine is available.
+does not necessarily mean:
+
+```text
+npm run build succeeds
+```
+
+A production Dockerfile must validate the actual production build pipeline.
 
 ---
 
-## 8. localhost vs host.docker.internal vs Docker DNS
+## 5. Container Networking Between Host and Docker
 
-During local application development:
+During standalone backend-container testing, PostgreSQL was still running directly on the Mac.
 
-```text
-localhost
-```
-
-referred to services running directly on the Mac.
-
-During standalone backend-container testing, PostgreSQL was still running on the Mac, so the backend used:
+The backend container therefore used:
 
 ```text
 host.docker.internal
 ```
 
-After PostgreSQL was containerized with Docker Compose, the backend used:
+to reach the host machine.
 
-```text
-db
-```
-
-Final Compose connection:
+After PostgreSQL was moved into Docker Compose, the connection changed to:
 
 ```text
 Host=db
@@ -922,149 +1130,176 @@ Host=db
 
 ### Learning
 
-Inside a container:
+There are three different networking contexts:
 
 ```text
 localhost
 ```
 
-means the container itself.
+means the current machine/container.
 
-Docker Compose service names should be used for container-to-container communication.
+```text
+host.docker.internal
+```
+
+allows a Docker Desktop container to reach the host machine.
+
+```text
+db
+```
+
+is Docker Compose DNS for the database service.
+
+Understanding this distinction is essential when moving an application from local execution into containers.
 
 ---
 
-## 9. Docker Compose Network Driver Typo
+## 6. EC2 SSH Connectivity and Security Group Source IP
 
-Compose initially failed with:
+SSH connectivity to EC2 initially timed out even though the EC2 instance itself was running.
 
-```text
-plugin "bridge°" not found
-```
+The problem was related to the inbound SSH source configuration in the Security Group.
 
-An accidental special character had been added to the Docker network driver.
-
-It was corrected from:
-
-```text
-bridge°
-```
-
-to:
-
-```text
-bridge
-```
+After validating the current public client IP and updating the inbound rule, SSH connectivity was restored.
 
 ### Learning
 
-When container images build successfully but Compose fails during network creation, isolate the issue to networking configuration instead of rebuilding the images.
+When SSH times out, troubleshoot the network path before assuming the SSH key is invalid.
+
+Important checks include:
+
+```text
+Instance state
+Public IPv4
+Security Group
+Port 22
+Source IP
+Subnet / route connectivity
+SSH username
+Key permissions
+```
 
 ---
 
-## 10. EC2 SSH Connectivity
+# 🎯 Final Result
 
-SSH initially timed out because the EC2 Security Group source IP did not match the current public IP of the development machine.
-
-The rule was corrected and connectivity restored.
-
-### Learning
-
-Security Groups are stateful network controls and source-IP restrictions must match the actual client public IP.
-
----
-
-## 11. EC2 Package Installation Delay
-
-Ubuntu package installation temporarily waited for repository headers.
-
-The package update was retried using IPv4.
-
-### Learning
-
-Cloud troubleshooting may involve networking and operating-system package repositories in addition to the application itself.
-
----
-
-# 🎯 Project Result
-
-The final solution successfully demonstrates:
+The completed project demonstrates:
 
 - Existing three-tier application analysis
+- Local application validation
+- Three-tier system design
+- Git branching
+- Meaningful incremental commits
 - React frontend containerization
 - ASP.NET Core backend containerization
 - PostgreSQL containerization
 - Separate frontend and backend Dockerfiles
 - Multi-stage Docker builds
-- Minimal production runtime images
-- Docker layer caching
+- Docker layer optimization
 - `.dockerignore`
 - Non-root backend execution
-- Nginx production server
+- Nginx production serving
 - Nginx reverse proxy
 - Docker Compose orchestration
 - Custom Docker bridge network
-- Docker service-name DNS
-- Internal backend communication
-- Internal PostgreSQL communication
-- Named PostgreSQL volume
+- Docker internal DNS
+- Service-name communication
+- Internal backend port
+- Internal PostgreSQL port
+- PostgreSQL named volume
 - Database persistence validation
 - EF Core migrations
 - Automatic migration execution
-- PostgreSQL health check
-- Backend health check
-- Runtime configuration
-- Secret separation using `.env`
+- Container health checks
+- Runtime secrets
 - AWS EC2 deployment
-- Public HTTP access
 - Security Group configuration
-- End-to-end API validation
+- Public frontend access
+- API validation
+- Complete deployment evidence
+
+---
+
+# 📸 Deployment Evidence
+
+The complete deployment evidence is available in:
+
+```text
+documentation/devops/screenshots/
+```
+
+The evidence includes:
+
+```text
+System design
+GitHub repository
+Git commit history
+Backend Dockerfile
+Frontend Dockerfile
+Docker Compose configuration
+Docker image sizes
+Custom Docker network
+PostgreSQL named volume
+Persistence before recreation
+Persistence after recreation
+EC2 instance
+Security Group
+Docker Compose running on EC2
+API test
+Live EC2 application
+```
+
+A separate PDF / document is also prepared for the final practical submission containing the deployment screenshots in sequence.
 
 ---
 
 # 🚀 Future Improvements
 
-Possible future improvements include:
+Possible next stages for this project include:
 
 - GitHub Actions CI/CD pipeline
-- Automated Docker image builds
+- Automated test pipeline
+- Automated Docker builds
 - Amazon ECR
+- Amazon RDS
 - HTTPS/TLS
+- Domain name configuration
 - AWS Application Load Balancer
-- Amazon RDS for PostgreSQL
-- Infrastructure as Code using Terraform
+- Terraform
 - Prometheus monitoring
 - Grafana dashboards
-- Centralized application logging
-- Container vulnerability scanning
-- Automated backup strategy
-- Domain name and DNS configuration
+- Centralized logging
+- Docker image vulnerability scanning
+- Automated PostgreSQL backups
+- Blue/green or rolling deployments
 
 ---
 
 # 🙏 Original Application Credit
 
-The application used as the starting point for this project was the open-source:
+The base application was forked from the open-source repository:
 
-```text
-MohamadNach/fullstack-ecommerce-app
-```
+**MohamadNach/fullstack-ecommerce-app**
 
-The original repository provided the React, ASP.NET Core, and PostgreSQL application.
+The original project provided the React, ASP.NET Core and PostgreSQL application source.
 
-The following work was implemented as part of this DevOps project:
+The DevOps implementation added in this repository includes:
 
-- Dockerfiles
-- Multi-stage container builds
+- system architecture
+- Git implementation history
+- frontend Dockerfile
+- backend Dockerfile
+- multi-stage builds
+- `.dockerignore`
+- Nginx configuration
 - Docker Compose
-- Docker networking
-- PostgreSQL persistence
-- Nginx reverse proxy
+- Docker custom networking
+- PostgreSQL persistent storage
 - runtime environment configuration
-- health checks
+- container health checks
 - EF Core migration handling
 - AWS EC2 deployment
-- DevOps architecture
-- deployment testing
+- Security Group configuration
+- deployment validation
 - troubleshooting documentation
-
+- deployment evidence
